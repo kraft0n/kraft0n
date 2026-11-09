@@ -1127,11 +1127,8 @@ function renderGoogleButton(containerId) {
         Войти через Google
       </button>
     `;
-    $('googleFallbackBtn').onclick = () => {
-      notify('Сначала вставь свой Google Client ID в код (см. README)');
     };
   }
-}
 
 function openAuthModal() {
   const content = $('authContent');
