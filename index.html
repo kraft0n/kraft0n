@@ -35,8 +35,8 @@
   --input-bg: #ffffff;
   --toast-bg: #1c2033;
   --overlay: rgba(15, 18, 30, 0.45);
-  --mos-blue: #1a5cff;
-  --mos-blue-hover: #0f4ae0;
+  --google-blue: #4285f4;
+  --google-blue-hover: #3367d6;
 }
 
 [data-theme="dark"] {
@@ -65,8 +65,8 @@
   --input-bg: #12141c;
   --toast-bg: #2a2e3d;
   --overlay: rgba(0, 0, 0, 0.6);
-  --mos-blue: #3b82f6;
-  --mos-blue-hover: #60a5fa;
+  --google-blue: #8ab4f8;
+  --google-blue-hover: #aecbfa;
 }
 
 * { box-sizing: border-box; }
@@ -260,7 +260,7 @@ a { color: inherit; }
 }
 .avatar:hover { transform: scale(1.05); }
 .avatar.logged {
-  background: linear-gradient(135deg, var(--mos-blue), #60a5fa);
+  background: linear-gradient(135deg, #4285f4, #34a853);
   color: white;
   font-weight: 700;
   font-size: 15px;
@@ -317,13 +317,25 @@ a { color: inherit; }
   border-color: var(--muted);
   box-shadow: none;
 }
-.button.mos {
-  background: var(--mos-blue);
-  box-shadow: 0 6px 16px rgba(26, 92, 255, 0.25);
+.button.google {
+  background: #fff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  font-weight: 600;
 }
-.button.mos:hover {
-  background: var(--mos-blue-hover);
-  box-shadow: 0 8px 22px rgba(26, 92, 255, 0.3);
+.button.google:hover {
+  background: #f8f9fa;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+  transform: translateY(-1px);
+}
+[data-theme="dark"] .button.google {
+  background: #2d2e30;
+  color: #e8eaed;
+  border-color: #5f6368;
+}
+[data-theme="dark"] .button.google:hover {
+  background: #3c4043;
 }
 .button.sm {
   padding: 7px 12px;
@@ -701,7 +713,7 @@ a { color: inherit; }
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--mos-blue), #60a5fa);
+  background: linear-gradient(135deg, #4285f4, #34a853);
   color: white;
   display: grid;
   place-items: center;
@@ -1010,7 +1022,9 @@ $('themeSwitch').addEventListener('keydown', e => {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTheme(); }
 });
 
-// ===== User / Auth (local mock of Мос.ру) =====
+// ===== User / Auth (Google Sign-In + local fallback) =====
+const GOOGLE_CLIENT_ID = '50372608606-ja926r4tlhvtfj7e5k411ot4cau6mek9.apps.googleusercontent.com';
+
 function loadUser() {
   try {
     const raw = localStorage.getItem(USER_KEY);
@@ -1026,78 +1040,169 @@ function updateUserUI() {
   const av = $('userAvatar');
   const hello = $('helloText');
   if (user && user.loggedIn) {
-    const initial = (user.name || 'У').trim().charAt(0).toUpperCase();
-    av.textContent = initial;
-    av.classList.add('logged');
-    hello.textContent = `Привет, ${user.name}! 👋`;
+    if (user.picture) {
+      av.innerHTML = `<img src="${esc(user.picture)}" alt="" style="width:100%;height:100%;border-radius:12px;object-fit:cover">`;
+      av.classList.add('logged');
+      av.style.padding = '0';
+      av.style.overflow = 'hidden';
+    } else {
+      const initial = (user.name || 'У').trim().charAt(0).toUpperCase();
+      av.textContent = initial;
+      av.classList.add('logged');
+      av.style.padding = '';
+      av.style.overflow = '';
+    }
+    hello.textContent = `Привет, ${user.name.split(' ')[0]}! 👋`;
   } else {
     av.textContent = '🎓';
     av.classList.remove('logged');
+    av.style.padding = '';
+    av.style.overflow = '';
     hello.textContent = 'Привет, будущий отличник! 👋';
+  }
+}
+
+function handleGoogleCredential(response) {
+  try {
+    // Decode JWT payload (middle part)
+    const payload = JSON.parse(atob(response.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    user = {
+      name: payload.name || payload.given_name || 'Студент',
+      email: payload.email || '',
+      picture: payload.picture || '',
+      loggedIn: true,
+      viaGoogle: true
+    };
+    saveUser();
+    closeAuthModal();
+    notify(`Добро пожаловать, ${user.name.split(' ')[0]}!`);
+  } catch (err) {
+    console.error(err);
+    notify('Не удалось войти через Google');
+  }
+}
+
+function initGoogleButton() {
+  if (typeof google === 'undefined' || !google.accounts) {
+    // Library not loaded yet or Client ID not set
+    return false;
+  }
+  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.includes('YOUR_GOOGLE')) {
+    return false;
+  }
+  try {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true
+    });
+    return true;
+  } catch (e) {
+    console.warn('Google init error', e);
+    return false;
+  }
+}
+
+function renderGoogleButton(containerId) {
+  const el = $(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  const ok = initGoogleButton();
+  if (ok && typeof google !== 'undefined') {
+    google.accounts.id.renderButton(el, {
+      type: 'standard',
+      theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'filled_black' : 'outline',
+      size: 'large',
+      text: 'signin_with',
+      shape: 'rectangular',
+      logo_alignment: 'left',
+      width: 340
+    });
+  } else {
+    // Fallback button when Client ID not configured
+    el.innerHTML = `
+      <button class="button google" id="googleFallbackBtn" style="width:100%;justify-content:center;gap:10px">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
+        Войти через Google
+      </button>
+    `;
+    $('googleFallbackBtn').onclick = () => {
+      notify('Сначала вставь свой Google Client ID в код (см. README)');
+    };
   }
 }
 
 function openAuthModal() {
   const content = $('authContent');
   if (user && user.loggedIn) {
+    const avatarHtml = user.picture
+      ? `<img src="${esc(user.picture)}" alt="" style="width:48px;height:48px;border-radius:14px;object-fit:cover">`
+      : `<div class="ua">${(user.name || 'У').charAt(0).toUpperCase()}</div>`;
     content.innerHTML = `
       <h2>Профиль</h2>
-      <p class="sub">Ты вошёл локально (симуляция Мос.ру)</p>
+      <p class="sub">${user.viaGoogle ? 'Вход через Google' : 'Локальный профиль'}</p>
       <div class="user-card">
-        <div class="ua">${(user.name || 'У').charAt(0).toUpperCase()}</div>
+        ${avatarHtml}
         <div>
           <strong>${esc(user.name)}</strong>
-          <small>Локальный профиль StudyHub</small>
+          <small>${user.email ? esc(user.email) : 'StudyHub'}</small>
         </div>
       </div>
       <div class="modal-actions">
         <button class="button ghost" id="logoutBtn" style="width:100%">Выйти</button>
       </div>
-      <div class="notice">Данные по-прежнему хранятся только в этом браузере. Настоящий вход через Мос.ру требует официальной регистрации сервиса и серверной части.</div>
+      <div class="notice">Данные по-прежнему хранятся только в этом браузере.</div>
     `;
     $('logoutBtn').onclick = () => {
       user = null;
       saveUser();
+      // Optional: google.accounts.id.disableAutoSelect();
       closeAuthModal();
       notify('Ты вышел из профиля');
     };
   } else {
     content.innerHTML = `
       <h2>Вход в StudyHub</h2>
-      <p class="sub">Войди, чтобы персонализировать приветствие. Данные останутся в браузере.</p>
+      <p class="sub">Войди через Google — имя и аватар подтянутся автоматически.</p>
+      <div id="googleBtnContainer" style="display:flex;justify-content:center;margin-bottom:16px;min-height:44px"></div>
+      <div style="display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--muted);font-size:13px">
+        <div style="flex:1;height:1px;background:var(--line)"></div>
+        <span>или</span>
+        <div style="flex:1;height:1px;background:var(--line)"></div>
+      </div>
       <div class="field">
-        <label for="loginName">Как тебя зовут?</label>
+        <label for="loginName">Просто указать имя</label>
         <input id="loginName" placeholder="Например, Аня" maxlength="40" autocomplete="name">
       </div>
       <div class="modal-actions">
-        <button class="button mos" id="mosLoginBtn" style="width:100%">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style="margin-right:2px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-4-4 1.41-1.41L11 14.17l6.59-6.59L19 9l-8 8z" fill="currentColor"/></svg>
-          Войти через Мос.ру
-        </button>
-        <button class="button secondary" id="localLoginBtn" style="width:100%">Просто сохранить имя</button>
+        <button class="button secondary" id="localLoginBtn" style="width:100%">Сохранить имя</button>
       </div>
-      <div class="notice">⚠️ Настоящий OAuth Мос.ру / Госуслуги здесь недоступен — для этого нужен backend и регистрация сервиса. Сейчас это удобная локальная имитация.</div>
+      <div class="notice">Чтобы работал настоящий вход через Google — создай Client ID в Google Cloud и вставь его в код (см. README).</div>
     `;
-    $('mosLoginBtn').onclick = () => doLogin(true);
-    $('localLoginBtn').onclick = () => doLogin(false);
+    renderGoogleButton('googleBtnContainer');
+    $('localLoginBtn').onclick = () => doLocalLogin();
     $('loginName').focus();
     $('loginName').addEventListener('keydown', e => {
-      if (e.key === 'Enter') doLogin(false);
+      if (e.key === 'Enter') doLocalLogin();
     });
   }
   $('authModal').classList.add('open');
 }
-function doLogin(asMos) {
+
+function doLocalLogin() {
   const nameInput = $('loginName');
   const name = (nameInput?.value || '').trim() || 'Студент';
-  user = { name, loggedIn: true, viaMos: !!asMos };
+  user = { name, email: '', picture: '', loggedIn: true, viaGoogle: false };
   saveUser();
   closeAuthModal();
-  notify(asMos ? `Добро пожаловать, ${name}! (симуляция Мос.ру)` : `Привет, ${name}!`);
+  notify(`Привет, ${name}!`);
 }
+
 function closeAuthModal() {
   $('authModal').classList.remove('open');
 }
+
 $('userAvatar').addEventListener('click', openAuthModal);
 $('closeModal').addEventListener('click', closeAuthModal);
 $('authModal').addEventListener('click', e => {
